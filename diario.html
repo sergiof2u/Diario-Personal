@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diario</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root {
+  --ink:    #1C1B18;
+  --ink2:   #5C5A52;
+  --ink3:   #9E9C94;
+  --paper:  #F7F5F0;
+  --paper2: #EFECEA;
+  --paper3: #E5E2DC;
+  --line:   #DDD9D0;
+  --accent: #8B6A3E;
+  --accent2:#C49A5A;
+  --danger: #A04040;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink:    #EAE7DF;
+    --ink2:   #A8A49A;
+    --ink3:   #6A6760;
+    --paper:  #18170F;
+    --paper2: #211F17;
+    --paper3: #2A271E;
+    --line:   #343027;
+    --accent: #C49A5A;
+    --accent2:#E0B97A;
+    --danger: #D07070;
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);font-size:15px}
+
+.shell{display:grid;grid-template-columns:280px 1fr;height:100vh}
+
+/* Loading overlay */
+#loading-screen{position:fixed;inset:0;background:var(--paper);display:flex;align-items:center;justify-content:center;z-index:200;flex-direction:column;gap:12px}
+#loading-screen p{font-family:'Playfair Display',serif;font-size:16px;color:var(--ink2);font-style:italic}
+.spinner{width:28px;height:28px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Sidebar */
+.sidebar{background:var(--paper2);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-head{padding:1.5rem 1.25rem 1rem;border-bottom:1px solid var(--line);flex-shrink:0}
+.sidebar-head h1{font-family:'Playfair Display',serif;font-size:22px;font-weight:400;color:var(--ink);margin-bottom:0.2rem}
+.sidebar-sub{font-size:12px;color:var(--ink3);letter-spacing:0.04em}
+
+.filters{padding:0.85rem 1.25rem;border-bottom:1px solid var(--line);flex-shrink:0}
+.filters-label{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--ink3);margin-bottom:8px;font-weight:500;display:block}
+.filter-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.filter-tag{font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s}
+.filter-tag:hover{border-color:var(--accent);color:var(--accent)}
+.filter-tag.on{background:var(--accent);border-color:var(--accent);color:var(--paper)}
+.date-range{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.date-range input{font-family:'DM Sans',sans-serif;font-size:12px;padding:5px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--paper);color:var(--ink);outline:none;width:100%;cursor:pointer;transition:border-color 0.15s}
+.date-range input:focus{border-color:var(--accent)}
+.filter-actions{display:flex;gap:5px;margin-top:7px}
+
+.entries-scroll{flex:1;overflow-y:auto;padding:0.5rem 0}
+.entries-scroll::-webkit-scrollbar{width:3px}
+.entries-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:2px}
+
+.month-hdr{display:flex;justify-content:space-between;align-items:center;padding:7px 1.25rem;cursor:pointer;user-select:none;background:var(--paper3);border-bottom:1px solid var(--line);transition:background 0.12s}
+.month-hdr:hover{background:var(--line)}
+.month-name{font-size:12px;font-weight:500;color:var(--ink2);text-transform:capitalize;letter-spacing:0.03em}
+.month-count{font-size:11px;color:var(--ink3)}
+
+.entry-row{padding:9px 1.25rem 9px 1.5rem;cursor:pointer;border-bottom:0.5px solid var(--line);transition:background 0.1s;border-left:3px solid transparent}
+.entry-row:hover{background:var(--paper3)}
+.entry-row.active{border-left-color:var(--accent);background:var(--paper2)}
+.entry-day{font-size:11px;color:var(--ink3);margin-bottom:2px;font-weight:500;letter-spacing:0.03em;text-transform:capitalize}
+.entry-preview{font-size:13px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.entry-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.chip{font-size:10px;padding:1px 7px;border-radius:20px;font-weight:500}
+
+.sidebar-footer{padding:0.75rem 1.25rem;border-top:1px solid var(--line);display:flex;gap:6px;flex-shrink:0}
+
+/* Main */
+.main{display:flex;flex-direction:column;overflow:hidden;background:var(--paper)}
+.topbar{padding:0.9rem 2rem;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:1rem;background:var(--paper2);flex-shrink:0}
+.topbar-date{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--paper);color:var(--ink);outline:none;cursor:pointer;transition:border-color 0.15s}
+.topbar-date:focus{border-color:var(--accent)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+.mode-badge{font-size:11px;color:var(--accent);font-weight:500;letter-spacing:0.06em;text-transform:uppercase}
+
+.tags-bar{display:flex;flex-wrap:wrap;gap:6px;padding:0.7rem 2rem;border-bottom:1px solid var(--line);background:var(--paper2);align-items:center;flex-shrink:0;min-height:46px}
+.tags-bar-label{font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:0.1em;font-weight:500;margin-right:4px;flex-shrink:0}
+.tag-btn{font-size:11px;padding:3px 12px;border-radius:20px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s}
+.tag-btn:hover{border-color:var(--accent2);color:var(--accent)}
+.tag-btn.on{border-color:transparent;font-weight:500}
+.new-tag-input{font-family:'DM Sans',sans-serif;font-size:11px;padding:3px 10px;border:1px dashed var(--line);border-radius:20px;background:transparent;color:var(--ink);outline:none;width:90px;transition:all 0.15s}
+.new-tag-input:focus{border-color:var(--accent);border-style:solid}
+.new-tag-input::placeholder{color:var(--ink3)}
+
+.writing-wrap{flex:1;overflow:hidden}
+.writing-wrap textarea{width:100%;height:100%;border:none;outline:none;resize:none;background:transparent;font-family:'Playfair Display',serif;font-size:18px;line-height:1.9;color:var(--ink);padding:2.5rem 2rem}
+.writing-wrap textarea::placeholder{color:var(--ink3);font-style:italic}
+
+.statusbar{padding:0.4rem 2rem;border-top:1px solid var(--line);display:flex;align-items:center;gap:1rem;background:var(--paper2);flex-shrink:0}
+.status-txt{font-size:11px;color:var(--ink3);letter-spacing:0.03em}
+
+/* Buttons */
+.btn{font-family:'DM Sans',sans-serif;font-size:13px;padding:6px 16px;border-radius:var(--r);border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;transition:all 0.15s;white-space:nowrap}
+.btn:hover{border-color:var(--ink3);background:var(--paper2)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2);border-color:var(--accent2);color:var(--ink)}
+.btn-ghost{background:transparent;border-color:transparent;color:var(--ink3);padding:6px 10px}
+.btn-ghost:hover{color:var(--ink);background:var(--paper3)}
+.btn-danger{color:var(--danger);border-color:transparent;background:transparent;padding:6px 10px}
+.btn-danger:hover{background:#FEF0F0;border-color:var(--danger)}
+.btn-sm{font-size:11px;padding:4px 10px}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:100;opacity:0;pointer-events:none;transition:opacity .2s}
+.overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:1.75rem;min-width:420px;max-width:560px;transform:translateY(14px);transition:transform .2s;box-shadow:0 20px 60px rgba(0,0,0,.15)}
+.overlay.open .modal{transform:translateY(0)}
+.modal h3{font-family:'Playfair Display',serif;font-size:18px;font-weight:400;margin-bottom:1.25rem;color:var(--ink)}
+.modal-sec{margin-bottom:1.25rem;padding-bottom:1.25rem;border-bottom:1px solid var(--line)}
+.modal-sec:last-of-type{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.modal-label{font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;font-weight:500;display:block}
+.modal-desc{font-size:13px;color:var(--ink2);margin-bottom:10px;line-height:1.6}
+.modal-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--line)}
+
+.tag-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--line)}
+.tag-row:last-child{border-bottom:none}
+.tag-pill-name{flex:1;font-size:13px;padding:3px 10px;border-radius:20px}
+.color-swatch{width:32px;height:28px;border:1px solid var(--line);border-radius:4px;cursor:pointer;padding:1px}
+
+/* ── MOBILE ─────────────────────────────────────── */
+.mob-topbar{display:none}
+
+@media (max-width: 768px) {
+  html,body{overflow:auto}
+
+  .shell{
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    height:100dvh;
+  }
+
+  /* Sidebar se convierte en drawer */
+  .sidebar{
+    position:fixed;
+    top:0;left:0;bottom:0;
+    width:82vw;max-width:320px;
+    z-index:150;
+    transform:translateX(-100%);
+    transition:transform .25s ease;
+    box-shadow:4px 0 24px rgba(0,0,0,.18);
+  }
+  .sidebar.open{ transform:translateX(0) }
+
+  /* Overlay oscuro detrás del drawer */
+  .drawer-bg{
+    display:none;
+    position:fixed;inset:0;
+    background:rgba(0,0,0,.35);
+    z-index:140;
+  }
+  .drawer-bg.open{ display:block }
+
+  /* Topbar móvil */
+  .mob-topbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:0.75rem 1rem;
+    background:var(--paper2);
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+    position:sticky;top:0;z-index:10;
+  }
+  .mob-menu-btn{
+    font-size:20px;
+    background:none;border:none;
+    color:var(--ink2);cursor:pointer;
+    padding:4px 6px;line-height:1;
+    border-radius:var(--r);
+    transition:background .15s;
+  }
+  .mob-menu-btn:hover{ background:var(--paper3) }
+  .mob-title{
+    font-family:'Playfair Display',serif;
+    font-size:18px;font-weight:400;
+    color:var(--ink);flex:1;
+  }
+
+  /* Main ocupa todo el ancho */
+  .main{ grid-column:1; }
+
+  /* Topbar de escritorio se adapta */
+  .topbar{
+    padding:0.7rem 1rem;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .topbar-right{ gap:4px }
+  .mode-badge{ display:none }
+
+  /* Tags bar */
+  .tags-bar{ padding:0.6rem 1rem; }
+
+  /* Textarea más cómodo */
+  .writing-wrap textarea{
+    font-size:16px; /* evita zoom automático en iOS */
+    padding:1.5rem 1rem;
+    line-height:1.8;
+  }
+
+  .statusbar{ padding:0.4rem 1rem; }
+  .sidebar-footer{ flex-wrap:wrap; }
+
+  /* Entradas más fáciles de tocar */
+  .entry-row{ padding:12px 1rem 12px 1.25rem; }
+
+  /* Modal más compacto */
+  .modal{
+    min-width:0;
+    width:92vw;
+    padding:1.25rem;
+    margin:0 auto;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- Loading screen -->
+<div id="loading-screen">
+  <div class="spinner"></div>
+  <p>Cargando diario…</p>
+</div>
+
+<!-- Overlay oscuro para cerrar drawer en móvil -->
+<div class="drawer-bg" id="drawer-bg" onclick="closeSidebar()"></div>
+
+<div class="shell">
+
+  <!-- Topbar móvil -->
+  <div class="mob-topbar">
+    <button class="mob-menu-btn" onclick="openSidebar()">☰</button>
+    <span class="mob-title">Diario</span>
+    <button class="btn btn-ghost btn-sm" onclick="newEntry()">+ Nueva</button>
+  </div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h1>Diario</h1>
+      <span class="sidebar-sub" id="entry-count">—</span>
+    </div>
+    <div class="filters">
+      <span class="filters-label">Filtrar</span>
+      <div class="filter-tags" id="filter-tags"></div>
+      <div class="date-range">
+        <input type="date" id="fromDate" onchange="renderList()" title="Desde">
+        <input type="date" id="toDate" onchange="renderList()" title="Hasta">
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-sm btn-ghost" onclick="clearFilters()">Limpiar filtros</button>
+      </div>
+    </div>
+    <div class="entries-scroll" id="list"></div>
+    <div class="sidebar-footer">
+      <button class="btn btn-sm btn-ghost" onclick="openModal('io')">Importar / Exportar</button>
+      <button class="btn btn-sm btn-ghost" onclick="openModal('tags')">Etiquetas</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="topbar">
+      <input type="date" id="entry-date" class="topbar-date">
+      <span class="mode-badge" id="mode-badge">Nueva</span>
+      <div class="topbar-right">
+        <button class="btn btn-ghost" onclick="newEntry()">+ Nueva</button>
+        <button class="btn btn-danger" id="btn-del" style="display:none" onclick="deleteEntry()">Eliminar</button>
+        <button class="btn btn-primary" id="btn-save" onclick="saveEntry()">Guardar</button>
+      </div>
+    </div>
+    <div class="tags-bar">
+      <span class="tags-bar-label">Etiquetas</span>
+      <div id="entry-tag-btns" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
+      <input class="new-tag-input" id="new-tag-input" placeholder="+ nueva…" maxlength="24"
+             onkeydown="if(event.key==='Enter')addTagInline()">
+    </div>
+    <div class="writing-wrap">
+      <textarea id="text" placeholder="¿Qué quieres registrar hoy?"></textarea>
+    </div>
+    <div class="statusbar">
+      <span class="status-txt" id="word-count">0 palabras</span>
+      <span class="status-txt" id="flash-msg"></span>
+    </div>
+  </main>
+</div>
+
+<!-- Modal -->
+<div class="overlay" id="overlay" onclick="overlayClick(event)">
+  <div class="modal" id="modal-box"></div>
+</div>
+
+<script>
+// ─── FIREBASE ─────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyBB7q45D5XQ5ZRnF9EW8xXGNL6-ma6xQF8",
+  authDomain: "diario-personal-a53e5.firebaseapp.com",
+  projectId: "diario-personal-a53e5",
+  storageBucket: "diario-personal-a53e5.firebasestorage.app",
+  messagingSenderId: "405344691276",
+  appId: "1:405344691276:web:2af0605882031afe23c0e9"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// ─── STATE ────────────────────────────────────────
+let entries     = [];
+let tagList     = [
+  {name:"reflexión", bg:"#EEEDFE", fg:"#3C3489"},
+  {name:"trabajo",   bg:"#E6F1FB", fg:"#0C447C"},
+  {name:"cuerpo",    bg:"#E1F5EE", fg:"#085041"},
+  {name:"emociones", bg:"#FAECE7", fg:"#712B13"},
+  {name:"ideas",     bg:"#FAEEDA", fg:"#633806"},
+  {name:"sueños",    bg:"#FBEAF0", fg:"#72243E"},
+  {name:"relaciones",bg:"#EAF3DE", fg:"#27500A"},
+  {name:"gratitud",  bg:"#FCEBEB", fg:"#791F1F"},
+];
+let currentId   = null;
+let activeFilter = null;
+let openMonths  = new Set();
+let selTags     = [];
+
+// ─── FIRESTORE PERSISTENCIA ───────────────────────
+async function persistEntry(entry) {
+  const { id, ...data } = entry;
+  await db.collection("entradas").doc(String(id)).set(data);
+}
+
+async function deleteEntryDB(id) {
+  await db.collection("entradas").doc(String(id)).delete();
+}
+
+async function persistTags() {
+  await db.collection("meta").doc("tags").set({ list: tagList });
+}
+
+async function loadEntries() {
+  const snap = await db.collection("entradas").orderBy("date", "desc").get();
+  entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+// ─── HELPERS ──────────────────────────────────────
+function tagStyle(name) {
+  return tagList.find(t => t.name === name) || { bg:"#F0EEE8", fg:"#555" };
+}
+
+function today() { return new Date().toISOString().slice(0,10); }
+
+function fmtDay(iso) {
+  return new Date(iso+"T12:00:00").toLocaleDateString("es-CO",{weekday:"short",day:"numeric"});
+}
+
+function fmtMonth(key) {
+  return new Date(key+"-15").toLocaleDateString("es-CO",{month:"long",year:"numeric"});
+}
+
+function flash(msg) {
+  const el = document.getElementById("flash-msg");
+  el.textContent = msg;
+  setTimeout(() => el.textContent = "", 2000);
+}
+
+function setBusy(on) {
+  document.getElementById("btn-save").disabled = on;
+  document.getElementById("btn-del").disabled  = on;
+}
+
+// ─── FILTROS ──────────────────────────────────────
+function passFilters(e) {
+  const from = document.getElementById("fromDate").value;
+  const to   = document.getElementById("toDate").value;
+  if (activeFilter && !(e.tags||[]).includes(activeFilter)) return false;
+  if (from && e.date < from) return false;
+  if (to   && e.date > to)   return false;
+  return true;
+}
+
+function clearFilters() {
+  activeFilter = null;
+  document.getElementById("fromDate").value = "";
+  document.getElementById("toDate").value   = "";
+  renderFilterTags();
+  renderList();
+}
+
+function setFilter(tag) {
+  activeFilter = tag;
+  renderFilterTags();
+  renderList();
+}
+
+// ─── SIDEBAR ──────────────────────────────────────
+function renderFilterTags() {
+  document.getElementById("filter-tags").innerHTML =
+    `<button class="filter-tag${activeFilter===null?' on':''}" onclick="setFilter(null)">Todo</button>` +
+    tagList.map(t=>`<button class="filter-tag${activeFilter===t.name?' on':''}"
+      style="${activeFilter===t.name?`background:${t.bg};border-color:${t.bg};color:${t.fg}`:''}"
+      onclick="setFilter('${t.name}')">${t.name}</button>`).join("");
+}
+
+function renderList() {
+  const groups = {};
+  entries.forEach(e => {
+    if (!passFilters(e)) return;
+    const k = e.date.slice(0,7);
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(e);
+  });
+  const keys = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+  if (openMonths.size === 0 && keys.length) openMonths.add(keys[0]);
+  if (currentId) {
+    const ce = entries.find(x => x.id === currentId);
+    if (ce) openMonths.add(ce.date.slice(0,7));
+  }
+  const total = Object.values(groups).reduce((s,g) => s+g.length, 0);
+  document.getElementById("entry-count").textContent = total===1 ? "1 entrada" : `${total} entradas`;
+  if (!keys.length) {
+    document.getElementById("list").innerHTML =
+      `<p style="padding:1.5rem 1.25rem;font-size:13px;color:var(--ink3);">Sin entradas.</p>`;
+    return;
+  }
+  document.getElementById("list").innerHTML = keys.map(k => {
+    const isOpen = openMonths.has(k);
+    const grp = groups[k];
+    const rows = isOpen ? grp.map(e => {
+      const chips = (e.tags||[]).map(t => {
+        const s = tagStyle(t);
+        return `<span class="chip" style="background:${s.bg};color:${s.fg}">${t}</span>`;
+      }).join("");
+      return `<div class="entry-row${String(e.id)===String(currentId)?' active':''}" data-id="${String(e.id).replace(/"/g,'')}">
+        <div class="entry-day">${fmtDay(e.date)}</div>
+        <div class="entry-preview">${e.text.slice(0,52).replace(/\n/g," ")}</div>
+        ${chips?`<div class="entry-chips">${chips}</div>`:""}
+      </div>`;
+    }).join("") : "";
+    return `<div>
+      <div class="month-hdr" data-month="${k}">
+        <span class="month-name">${fmtMonth(k)}</span>
+        <span class="month-count">${grp.length} ${isOpen?"▲":"▼"}</span>
+      </div>${rows}
+    </div>`;
+  }).join("");
+}
+
+function toggleMonth(k) {
+  if (openMonths.has(k)) openMonths.delete(k); else openMonths.add(k);
+  renderList();
+}
+
+document.getElementById("list").addEventListener("click", function(e) {
+  const row = e.target.closest("[data-id]");
+  const hdr = e.target.closest("[data-month]");
+  if (row) { openEntry(row.dataset.id); return; }
+  if (hdr) { toggleMonth(hdr.dataset.month); }
+});
+
+// ─── ETIQUETAS DE ENTRADA ─────────────────────────
+function renderEntryTags() {
+  document.getElementById("entry-tag-btns").innerHTML = tagList.map(t => {
+    const on = selTags.includes(t.name);
+    const style = on ? `background:${t.bg};color:${t.fg};border-color:transparent;` : "";
+    return `<button class="tag-btn${on?' on':''}" style="${style}" onclick="toggleSelTag('${t.name}')">${t.name}</button>`;
+  }).join("");
+}
+
+function toggleSelTag(name) {
+  if (selTags.includes(name)) selTags = selTags.filter(t => t !== name);
+  else selTags.push(name);
+  renderEntryTags();
+}
+
+async function addTagInline() {
+  const input = document.getElementById("new-tag-input");
+  const name  = input.value.trim().toLowerCase();
+  if (!name || tagList.find(t => t.name === name)) { input.value = ""; return; }
+  const hue = Math.floor(Math.random()*360);
+  tagList.push({ name, bg:`hsl(${hue},38%,91%)`, fg:`hsl(${hue},48%,28%)` });
+  input.value = "";
+  renderEntryTags();
+  renderFilterTags();
+  await persistTags();
+}
+
+// ─── CRUD ─────────────────────────────────────────
+function newEntry() {
+  currentId = null;
+  document.getElementById("text").value      = "";
+  document.getElementById("entry-date").value = today();
+  selTags = [];
+  renderEntryTags();
+  document.getElementById("mode-badge").textContent    = "Nueva";
+  document.getElementById("btn-del").style.display = "none";
+  document.getElementById("text").focus();
+  renderList();
+}
+
+function openEntry(id) {
+  const sid = String(id);
+  const e   = entries.find(x => String(x.id) === sid);
+  if (!e) return;
+  currentId = id;
+  document.getElementById("text").value       = e.text;
+  document.getElementById("entry-date").value  = e.date;
+  selTags = [...(e.tags||[])];
+  renderEntryTags();
+  document.getElementById("mode-badge").textContent    = "Editando";
+  document.getElementById("btn-del").style.display = "";
+  document.getElementById("text").focus();
+  renderList();
+}
+
+async function saveEntry() {
+  const text = document.getElementById("text").value.trim();
+  const date = document.getElementById("entry-date").value;
+  if (!text || !date) return;
+  setBusy(true);
+  let entry;
+  if (currentId) {
+    const i = entries.findIndex(x => x.id === currentId);
+    entry = { id: currentId, text, date, tags: [...selTags] };
+    if (i !== -1) entries[i] = entry;
+  } else {
+    const id = Date.now() + "";
+    entry = { id, text, date, tags: [...selTags] };
+    entries.unshift(entry);
+    currentId = id;
+  }
+  entries.sort((a,b) => new Date(b.date) - new Date(a.date));
+  try {
+    await persistEntry(entry);
+    document.getElementById("mode-badge").textContent = "Editando";
+    document.getElementById("btn-del").style.display = "";
+    flash("Guardado ✓");
+  } catch(err) {
+    flash("Error al guardar");
+    console.error(err);
+  }
+  setBusy(false);
+  renderList();
+}
+
+async function deleteEntry() {
+  if (!currentId || !confirm("¿Eliminar esta entrada?")) return;
+  setBusy(true);
+  try {
+    await deleteEntryDB(currentId);
+    entries = entries.filter(e => e.id !== currentId);
+    flash("Entrada eliminada");
+  } catch(err) {
+    flash("Error al eliminar");
+    console.error(err);
+  }
+  setBusy(false);
+  newEntry();
+}
+
+document.getElementById("text").addEventListener("input", () => {
+  const n = document.getElementById("text").value.trim().split(/\s+/).filter(Boolean).length;
+  document.getElementById("word-count").textContent = n===1 ? "1 palabra" : `${n} palabras`;
+});
+
+// ─── MODAL ────────────────────────────────────────
+function openModal(type) {
+  const box = document.getElementById("modal-box");
+  box.innerHTML = type === "tags" ? tagsHTML() : ioHTML();
+  document.getElementById("overlay").classList.add("open");
+}
+function overlayClick(e) {
+  if (e.target === document.getElementById("overlay")) closeModal();
+}
+function closeModal() {
+  document.getElementById("overlay").classList.remove("open");
+  renderEntryTags(); renderFilterTags(); renderList();
+}
+
+// Tags modal
+function tagsHTML() {
+  const rows = tagList.map((t,i) => `
+    <div class="tag-row">
+      <span class="tag-pill-name" style="background:${t.bg};color:${t.fg}">${t.name}</span>
+      <input type="color" value="${t.bg}" class="color-swatch" title="Fondo" onchange="updateTag(${i},'bg',this.value)">
+      <input type="color" value="${t.fg}" class="color-swatch" title="Texto" onchange="updateTag(${i},'fg',this.value)">
+      <button class="btn btn-sm btn-danger" onclick="removeTag(${i})">✕</button>
+    </div>`).join("");
+  return `<h3>Etiquetas</h3>
+  <div class="modal-sec" style="max-height:260px;overflow-y:auto;">${rows}</div>
+  <div class="modal-sec">
+    <span class="modal-label">Nueva etiqueta</span>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="m-name" class="topbar-date" placeholder="nombre" maxlength="24" style="flex:1;font-size:13px;"
+             onkeydown="if(event.key==='Enter')addTagModal()">
+      <input type="color" id="m-bg" value="#E1F5EE" class="color-swatch" style="width:36px;height:34px;" title="Fondo">
+      <input type="color" id="m-fg" value="#085041" class="color-swatch" style="width:36px;height:34px;" title="Texto">
+      <button class="btn btn-primary btn-sm" onclick="addTagModal()">Agregar</button>
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn" onclick="closeModal()">Cerrar</button></div>`;
+}
+
+async function addTagModal() {
+  const name = document.getElementById("m-name").value.trim().toLowerCase();
+  const bg   = document.getElementById("m-bg").value;
+  const fg   = document.getElementById("m-fg").value;
+  if (!name || tagList.find(t => t.name === name)) return;
+  tagList.push({ name, bg, fg });
+  await persistTags();
+  openModal("tags");
+}
+
+async function updateTag(i, prop, val) {
+  tagList[i][prop] = val;
+  await persistTags();
+}
+
+async function removeTag(i) {
+  const name = tagList[i].name;
+  if (!confirm(`¿Eliminar etiqueta "${name}"?`)) return;
+  tagList.splice(i, 1);
+  entries.forEach(e => { e.tags = (e.tags||[]).filter(t => t !== name); });
+  // Actualizar en Firestore las entradas que tenían esa etiqueta
+  const affected = entries.filter(e => true); // ya fue filtrada arriba
+  await persistTags();
+  openModal("tags");
+}
+
+// IO modal
+function ioHTML() {
+  return `<h3>Importar / Exportar</h3>
+  <div class="modal-sec">
+    <span class="modal-label">Exportar</span>
+    <p class="modal-desc">Descarga las entradas según los filtros activos, o el diario completo.</p>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary" onclick="exportFiltered()">⬇ Filtradas</button>
+      <button class="btn" onclick="exportAll()">⬇ Todo</button>
+    </div>
+  </div>
+  <div class="modal-sec">
+    <span class="modal-label">Importar</span>
+    <p class="modal-desc">Carga un JSON de respaldo. Solo agrega entradas nuevas — nunca duplica.</p>
+    <input type="file" accept=".json" onchange="importJSON(this)"
+           style="font-size:13px;color:var(--ink2);font-family:'DM Sans',sans-serif;">
+  </div>
+  <div class="modal-foot"><button class="btn" onclick="closeModal()">Cerrar</button></div>`;
+}
+
+function exportFiltered() {
+  dl(entries.filter(passFilters), `diario-${today()}.json`);
+}
+function exportAll() {
+  dl(entries, `diario-completo-${today()}.json`);
+}
+function dl(data, name) {
+  const blob = new Blob([JSON.stringify({version:1,exported:new Date().toISOString(),entries:data},null,2)],{type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// Importación robusta: consulta Firestore directamente para evitar duplicados
+async function importJSON(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async evt => {
+    try {
+      const raw      = JSON.parse(evt.target.result);
+      const imported = raw.entries || (Array.isArray(raw) ? raw : []);
+
+      // Consultar IDs existentes directamente en Firestore (no solo en memoria)
+      flash("Verificando duplicados…");
+      const existingSnap = await db.collection("entradas").get();
+      const existingIds  = new Set(existingSnap.docs.map(d => d.id));
+
+      const batch = db.batch();
+      let added   = 0;
+
+      imported.forEach(item => {
+        if (!item.text) return;
+        const id = String(item.id || (Date.now() + Math.random()));
+        if (existingIds.has(id)) return; // Ya existe — omitir
+        const ref = db.collection("entradas").doc(id);
+        batch.set(ref, {
+          text: item.text,
+          date: (item.date || today()).slice(0, 10),
+          tags: Array.isArray(item.tags) ? item.tags : []
+        });
+        added++;
+      });
+
+      if (added > 0) await batch.commit();
+
+      // Recargar desde Firestore para reflejar el estado real
+      await loadEntries();
+      renderList();
+      alert(`${added} entradas importadas.${added===0?' El archivo no contenía entradas nuevas.':''}`);
+      closeModal();
+    } catch(err) {
+      alert("Error al leer el archivo.");
+      console.error(err);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ─── TECLADO ──────────────────────────────────────
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey||e.metaKey) && e.key==="s") { e.preventDefault(); saveEntry(); }
+  if (e.key==="Escape") closeModal();
+});
+
+// ─── MOBILE DRAWER ────────────────────────────────
+function openSidebar() {
+  document.querySelector(".sidebar").classList.add("open");
+  document.getElementById("drawer-bg").classList.add("open");
+}
+function closeSidebar() {
+  document.querySelector(".sidebar").classList.remove("open");
+  document.getElementById("drawer-bg").classList.remove("open");
+}
+// Cerrar drawer al seleccionar una entrada en móvil
+document.getElementById("list").addEventListener("click", function(e) {
+  if (e.target.closest("[data-id]") && window.innerWidth <= 768) closeSidebar();
+});
+
+// ─── INIT ─────────────────────────────────────────
+async function init() {
+  try {
+    // Cargar etiquetas
+    const tagsDoc = await db.collection("meta").doc("tags").get();
+    if (tagsDoc.exists) tagList = tagsDoc.data().list;
+
+    // Cargar entradas
+    await loadEntries();
+  } catch(err) {
+    console.error("Error al conectar con Firebase:", err);
+  }
+
+  document.getElementById("entry-date").value = today();
+  renderFilterTags();
+  renderEntryTags();
+  renderList();
+
+  // Ocultar pantalla de carga
+  document.getElementById("loading-screen").style.display = "none";
+}
+
+init();
+</script>
+</body>
+</html>
